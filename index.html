@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto Portfolio P&L & Cost Basis Tracker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4">
+<div class="max-w-5xl mx-auto">
+  <h1 class="text-2xl font-bold text-yellow-400 mb-6">Crypto Portfolio P&L & Cost Basis Tracker</h1>
+
+  <!-- Add Transaction -->
+  <div class="bg-gray-900 rounded-xl p-4 mb-6 border border-gray-700">
+    <h2 class="text-lg font-semibold text-gray-200 mb-4">Add Transaction</h2>
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+      <div>
+        <label for="txType" class="block text-xs text-gray-400 mb-1">Type</label>
+        <select id="txType" class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-2 text-sm focus:outline-none focus:border-yellow-400">
+          <option value="buy">Buy</option>
+          <option value="sell">Sell</option>
+        </select>
+      </div>
+      <div>
+        <label for="txDate" class="block text-xs text-gray-400 mb-1">Date</label>
+        <input type="date" id="txDate" class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-2 text-sm focus:outline-none focus:border-yellow-400">
+      </div>
+      <div>
+        <label for="txSymbol" class="block text-xs text-gray-400 mb-1">Coin Symbol</label>
+        <input type="text" id="txSymbol" placeholder="BTC" class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-2 text-sm focus:outline-none focus:border-yellow-400 uppercase">
+      </div>
+      <div>
+        <label for="txQty" class="block text-xs text-gray-400 mb-1">Quantity</label>
+        <input type="number" id="txQty" placeholder="0.5" step="any" min="0" class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-2 text-sm focus:outline-none focus:border-yellow-400">
+      </div>
+      <div>
+        <label for="txPrice" class="block text-xs text-gray-400 mb-1">Price (USD)</label>
+        <input type="number" id="txPrice" placeholder="30000" step="any" min="0" class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-2 text-sm focus:outline-none focus:border-yellow-400">
+      </div>
+      <div class="flex items-end">
+        <button onclick="addTransaction()" class="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-semibold rounded py-2 text-sm transition">Add</button>
+      </div>
+    </div>
+    <div id="txError" class="text-red-400 text-xs mt-2 hidden"></div>
+  </div>
+
+  <!-- Current Prices -->
+  <div class="bg-gray-900 rounded-xl p-4 mb-6 border border-gray-700">
+    <h2 class="text-lg font-semibold text-gray-200 mb-3">Current Prices (USD)</h2>
+    <div id="priceInputs" class="flex flex-wrap gap-3"></div>
+  </div>
+
+  <!-- Summary Table -->
+  <div class="bg-gray-900 rounded-xl p-4 mb-6 border border-gray-700 overflow-x-auto">
+    <h2 class="text-lg font-semibold text-gray-200 mb-3">Portfolio Summary</h2>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-gray-400 border-b border-gray-700">
+          <th class="text-left py-2 pr-4">Coin</th>
+          <th class="text-right py-2 pr-4">Qty Held</th>
+          <th class="text-right py-2 pr-4">Avg Cost</th>
+          <th class="text-right py-2 pr-4">Current Price</th>
+          <th class="text-right py-2 pr-4">Market Value</th>
+          <th class="text-right py-2">Unrealized G/L</th>
+        </tr>
+      </thead>
+      <tbody id="summaryBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Transaction History -->
+  <div class="bg-gray-900 rounded-xl p-4 border border-gray-700 overflow-x-auto">
+    <div class="flex justify-between items-center mb-3">
+      <h2 class="text-lg font-semibold text-gray-200">Transaction History</h2>
+      <button onclick="clearAll()" class="text-xs text-red-400 hover:text-red-300 border border-red-800 hover:border-red-600 px-3 py-1 rounded transition">Clear All</button>
+    </div>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-gray-400 border-b border-gray-700">
+          <th class="text-left py-2 pr-3">Date</th>
+          <th class="text-left py-2 pr-3">Type</th>
+          <th class="text-left py-2 pr-3">Coin</th>
+          <th class="text-right py-2 pr-3">Qty</th>
+          <th class="text-right py-2 pr-3">Price</th>
+          <th class="text-right py-2 pr-3">Total</th>
+          <th class="text-right py-2">Realized P&L</th>
+        </tr>
+      </thead>
+      <tbody id="txBody"></tbody>
+    </table>
+    <div id="emptyMsg" class="text-gray-500 text-center py-8">No transactions yet. Add a buy or sell above.</div>
+  </div>
+</div>
+
+<script>
+function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+let transactions = JSON.parse(localStorage.getItem('crypto_txns') || '[]');
+let currentPrices = JSON.parse(localStorage.getItem('crypto_prices') || '{}');
+
+function save() {
+  localStorage.setItem('crypto_txns', JSON.stringify(transactions));
+  localStorage.setItem('crypto_prices', JSON.stringify(currentPrices));
+}
+
+function getSymbols() {
+  const syms = new Set();
+  transactions.forEach(t => syms.add(t.symbol));
+  return [...syms].sort();
+}
+
+function addTransaction() {
+  const type = document.getElementById('txType').value;
+  const date = document.getElementById('txDate').value;
+  const symbol = document.getElementById('txSymbol').value.trim().toUpperCase();
+  const qty = parseFloat(document.getElementById('txQty').value);
+  const price = parseFloat(document.getElementById('txPrice').value);
+  const errEl = document.getElementById('txError');
+
+  if (!date || !symbol || isNaN(qty) || qty <= 0 || isNaN(price) || price <= 0) {
+    errEl.textContent = 'Please fill in all fields with valid values.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (!/^[A-Z]{1,10}$/.test(symbol)) {
+    errEl.textContent = 'Symbol must be 1-10 uppercase letters.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  errEl.classList.add('hidden');
+
+  transactions.push({ type, date, symbol, qty, price, id: Date.now() });
+  transactions.sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  save();
+  render();
+
+  document.getElementById('txSymbol').value = '';
+  document.getElementById('txQty').value = '';
+  document.getElementById('txPrice').value = '';
+}
+
+// FIFO cost basis calculator
+function calcPortfolio() {
+  const lotsBySymbol = {}; // { symbol: [{qty, price}] }
+  const realizedPnl = {};  // { txId: pnl }
+  const holdings = {};     // { symbol: { qty, totalCost } }
+
+  transactions.forEach(tx => {
+    if (!lotsBySymbol[tx.symbol]) lotsBySymbol[tx.symbol] = [];
+    if (!realizedPnl[tx.id]) realizedPnl[tx.id] = null;
+
+    if (tx.type === 'buy') {
+      lotsBySymbol[tx.symbol].push({ qty: tx.qty, price: tx.price });
+    } else {
+      // FIFO sell
+      let remaining = tx.qty;
+      let costBasis = 0;
+      const lots = lotsBySymbol[tx.symbol] || [];
+      while (remaining > 0 && lots.length > 0) {
+        const lot = lots[0];
+        const used = Math.min(lot.qty, remaining);
+        costBasis += used * lot.price;
+        lot.qty -= used;
+        remaining -= used;
+        if (lot.qty <= 1e-10) lots.shift();
+      }
+      const proceeds = tx.qty * tx.price;
+      realizedPnl[tx.id] = proceeds - costBasis;
+    }
+  });
+
+  // Compute holdings
+  for (const sym in lotsBySymbol) {
+    let qty = 0, totalCost = 0;
+    lotsBySymbol[sym].forEach(l => { qty += l.qty; totalCost += l.qty * l.price; });
+    holdings[sym] = { qty, totalCost };
+  }
+
+  return { holdings, realizedPnl };
+}
+
+function renderPriceInputs(symbols) {
+  const container = document.getElementById('priceInputs');
+  container.innerHTML = '';
+  symbols.forEach(sym => {
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2 bg-gray-800 rounded px-3 py-2';
+    const label = document.createElement('label');
+    label.setAttribute('for', 'price_' + sym);
+    label.className = 'text-yellow-400 font-mono font-bold text-sm w-12';
+    label.textContent = sym;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.id = 'price_' + sym;
+    input.min = '0';
+    input.step = 'any';
+    input.placeholder = '0.00';
+    input.className = 'bg-transparent border-b border-gray-600 w-24 text-sm focus:outline-none focus:border-yellow-400 text-right';
+    input.value = currentPrices[sym] || '';
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value);
+      if (!isNaN(v) && v > 0) { currentPrices[sym] = v; save(); renderSummary(); }
+    });
+    div.appendChild(label);
+    div.appendChild(input);
+    container.appendChild(div);
+  });
+  if (symbols.length === 0) {
+    container.innerHTML = '<span class="text-gray-500 text-sm">Add transactions to enter current prices.</span>';
+  }
+}
+
+function renderSummary() {
+  const { holdings } = calcPortfolio();
+  const tbody = document.getElementById('summaryBody');
+  tbody.innerHTML = '';
+  const syms = Object.keys(holdings).sort();
+  if (syms.length === 0) return;
+
+  syms.forEach(sym => {
+    const h = holdings[sym];
+    if (h.qty < 1e-10) return;
+    const avgCost = h.qty > 0 ? h.totalCost / h.qty : 0;
+    const curPrice = currentPrices[sym] || 0;
+    const marketVal = h.qty * curPrice;
+    const unrealizedGL = curPrice ? marketVal - h.totalCost : null;
+    const unrealizedPct = h.totalCost > 0 && curPrice ? (unrealizedGL / h.totalCost) * 100 : null;
+
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-gray-800';
+    const glColor = unrealizedGL === null ? 'text-gray-400' : unrealizedGL >= 0 ? 'text-green-400' : 'text-red-400';
+    tr.innerHTML = `
+      <td class="py-2 pr-4 font-mono font-bold text-yellow-400">${escapeHtml(sym)}</td>
+      <td class="py-2 pr-4 text-right">${h.qty.toLocaleString(undefined,{maximumFractionDigits:8})}</td>
+      <td class="py-2 pr-4 text-right">$${avgCost.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td class="py-2 pr-4 text-right">${curPrice ? '$'+curPrice.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '<span class="text-gray-500">—</span>'}</td>
+      <td class="py-2 pr-4 text-right">${curPrice ? '$'+marketVal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '<span class="text-gray-500">—</span>'}</td>
+      <td class="py-2 text-right ${glColor}">${unrealizedGL !== null ? (unrealizedGL >= 0 ? '+' : '') + '$' + Math.abs(unrealizedGL).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + ' (' + (unrealizedPct >= 0 ? '+' : '') + unrealizedPct.toFixed(2) + '%)' : '<span class="text-gray-500">—</span>'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function render() {
+  const { realizedPnl } = calcPortfolio();
+  const symbols = getSymbols();
+  renderPriceInputs(symbols);
+  renderSummary();
+
+  const tbody = document.getElementById('txBody');
+  const emptyMsg = document.getElementById('emptyMsg');
+  tbody.innerHTML = '';
+
+  if (transactions.length === 0) {
+    emptyMsg.classList.remove('hidden');
+    return;
+  }
+  emptyMsg.classList.add('hidden');
+
+  [...transactions].reverse().forEach(tx => {
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-gray-800 hover:bg-gray-800 transition';
+    const pnl = realizedPnl[tx.id];
+    const pnlStr = pnl !== null && pnl !== undefined
+      ? `<span class="${pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`
+      : '—';
+    const typeClass = tx.type === 'buy' ? 'text-green-400' : 'text-red-400';
+    tr.innerHTML = `
+      <td class="py-2 pr-3 text-gray-400">${escapeHtml(tx.date)}</td>
+      <td class="py-2 pr-3 font-semibold ${typeClass}">${escapeHtml(tx.type.toUpperCase())}</td>
+      <td class="py-2 pr-3 font-mono text-yellow-400">${escapeHtml(tx.symbol)}</td>
+      <td class="py-2 pr-3 text-right">${tx.qty.toLocaleString(undefined,{maximumFractionDigits:8})}</td>
+      <td class="py-2 pr-3 text-right">$${tx.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td class="py-2 pr-3 text-right">$${(tx.qty*tx.price).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td class="py-2 text-right">${pnlStr}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function clearAll() {
+  if (!confirm('Clear all transactions and prices?')) return;
+  transactions = [];
+  currentPrices = {};
+  save();
+  render();
+}
+
+// Set default date
+document.getElementById('txDate').value = new Date().toISOString().split('T')[0];
+render();
+</script>
+</body>
+</html>
